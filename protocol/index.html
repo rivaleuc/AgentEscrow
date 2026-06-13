@@ -1,16 +1,46 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AgentEscrow</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-gray-950 text-white min-h-screen p-6"><div class="max-w-2xl mx-auto">
-<h1 class="text-2xl font-bold mb-6">⚡ AgentEscrow</h1>
-<div class="bg-gray-900 rounded-xl p-6 mb-4 border border-gray-800 space-y-3">
-<h2 class="text-blue-400 font-semibold">Create Task</h2>
-<textarea placeholder="Task spec..." rows="2" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 outline-none resize-none"></textarea>
-<textarea placeholder="Acceptance criteria..." rows="2" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 outline-none resize-none"></textarea>
-<button class="w-full bg-blue-600 hover:bg-blue-700 rounded-lg py-3 font-bold">Create Task</button>
-</div>
-<div class="bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-3">
-<h2 class="text-green-400 font-semibold">Submit Output</h2>
-<input placeholder="Task key" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 outline-none">
-<textarea placeholder="Agent output..." rows="3" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 outline-none resize-none"></textarea>
-<button class="w-full bg-green-600 hover:bg-green-700 rounded-lg py-3 font-bold">Submit & Judge</button>
-</div>
-</div></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AgentEscrow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#0f172a] text-white min-h-screen">
+  <nav class="bg-[#1e293b] border-b border-slate-700 px-6 py-4 flex justify-between items-center">
+    <div class="flex items-center gap-2"><span class="text-2xl">⚡</span><h1 class="text-xl font-bold">AgentEscrow</h1></div>
+    <span class="text-xs text-blue-400">Court of the Agentic Economy</span>
+  </nav>
+  <main class="max-w-4xl mx-auto p-6">
+    <!-- Pipeline columns -->
+    <div class="grid grid-cols-3 gap-4 mb-8">
+      <div class="text-center"><div class="w-3 h-3 bg-blue-500 rounded-full mx-auto mb-1"></div><span class="text-xs text-gray-400">OPEN</span><p class="text-xl font-bold">1</p></div>
+      <div class="text-center"><div class="w-3 h-3 bg-yellow-500 rounded-full mx-auto mb-1"></div><span class="text-xs text-gray-400">SUBMITTED</span><p class="text-xl font-bold">0</p></div>
+      <div class="text-center"><div class="w-3 h-3 bg-green-500 rounded-full mx-auto mb-1"></div><span class="text-xs text-gray-400">JUDGED</span><p class="text-xl font-bold">0</p></div>
+    </div>
+
+    <!-- Create Task -->
+    <section class="bg-[#1e293b] rounded-2xl p-6 border border-slate-700 mb-6">
+      <h2 class="text-blue-400 font-semibold mb-4">Create Agent Task</h2>
+      <textarea placeholder="Task specification (what should the agent produce?)" rows="2" class="w-full bg-[#0f172a] border border-slate-600 rounded-xl px-4 py-3 mb-3 placeholder-gray-600 outline-none resize-none"></textarea>
+      <textarea placeholder="Acceptance criteria (how will output be judged?)" rows="2" class="w-full bg-[#0f172a] border border-slate-600 rounded-xl px-4 py-3 mb-3 placeholder-gray-600 outline-none resize-none"></textarea>
+      <button class="w-full bg-blue-600 hover:bg-blue-500 rounded-xl py-3 font-bold transition">Create Task</button>
+    </section>
+
+    <!-- Submit + Judge -->
+    <div class="grid md:grid-cols-2 gap-4">
+      <section class="bg-[#1e293b] rounded-2xl p-6 border border-slate-700">
+        <h2 class="text-yellow-400 font-semibold mb-3 text-sm">Submit Output</h2>
+        <input placeholder="Task key" class="w-full bg-[#0f172a] border border-slate-600 rounded-xl px-4 py-2.5 mb-2 placeholder-gray-600 outline-none text-sm">
+        <textarea placeholder="Agent output..." rows="3" class="w-full bg-[#0f172a] border border-slate-600 rounded-xl px-4 py-2.5 mb-2 placeholder-gray-600 outline-none resize-none text-sm"></textarea>
+        <button class="w-full bg-yellow-600 hover:bg-yellow-500 rounded-xl py-2.5 font-bold text-sm transition">Submit</button>
+      </section>
+      <section class="bg-[#1e293b] rounded-2xl p-6 border border-slate-700">
+        <h2 class="text-green-400 font-semibold mb-3 text-sm">Judge Output</h2>
+        <input placeholder="Task key" class="w-full bg-[#0f172a] border border-slate-600 rounded-xl px-4 py-2.5 mb-2 placeholder-gray-600 outline-none text-sm">
+        <button class="w-full bg-green-600 hover:bg-green-500 rounded-xl py-2.5 font-bold text-sm transition">⚖️ Judge</button>
+        <p class="text-xs text-gray-600 mt-2">AI validators compare output against acceptance criteria</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
