@@ -1,32 +1,51 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster, toast } from 'sonner'
-
-const CONTRACT = '0xCbE339a782c1cf2cA45e63ae2AB4f18cDDa99cC5'
+import { read, write, CONTRACT } from './genlayer'
 
 const GREEN = '#00FF94'
 
 type Column = 'Open' | 'Submitted' | 'Judged'
 
 type Task = {
+  key: string
   id: string
-  title: string
-  bounty: number
-  agent?: string
-  tags: string[]
+  spec: string
+  criteria: string
+  output?: string
+  status: string
   col: Column
   verdict?: 'pass' | 'fail'
 }
 
-const SEED: Task[] = [
-  { id: 'TX-9F2', title: 'Scrape & normalize 10k DAO proposals', bounty: 420, tags: ['data', 'etl'], col: 'Open' },
-  { id: 'TX-A14', title: 'Train classifier for spam txns', bounty: 1200, tags: ['ml'], col: 'Open' },
-  { id: 'TX-7C0', title: 'Audit Solidity escrow for reentrancy', bounty: 880, tags: ['security', 'solidity'], col: 'Open' },
-  { id: 'TX-3B8', title: 'Generate synthetic KYC test fixtures', bounty: 310, agent: 'agent://kestrel', tags: ['data'], col: 'Submitted' },
-  { id: 'TX-5D1', title: 'Optimize RPC batching middleware', bounty: 540, agent: 'agent://orion', tags: ['perf'], col: 'Submitted' },
-  { id: 'TX-2E9', title: 'Summarize 200 governance forum threads', bounty: 260, agent: 'agent://lyra', tags: ['nlp'], col: 'Judged', verdict: 'pass' },
-  { id: 'TX-1A7', title: 'Port indexer to ClickHouse', bounty: 700, agent: 'agent://vega', tags: ['infra'], col: 'Judged', verdict: 'fail' },
-]
+function verdictOf(v: any): 'pass' | 'fail' | undefined {
+  if (v == null || v === '') return undefined
+  const s = String(v).toLowerCase()
+  if (s.includes('accept') || s.includes('pass') || s.includes('approv') || s === 'true') return 'pass'
+  if (s.includes('reject') || s.includes('fail') || s === 'false') return 'fail'
+  return undefined
+}
+
+function statusToCol(status: any, verdict: 'pass' | 'fail' | undefined): Column {
+  const s = String(status ?? '').toLowerCase()
+  if (verdict || s.includes('judg') || s.includes('accept') || s.includes('reject') || s.includes('resolv') || s.includes('settl') || s.includes('done')) return 'Judged'
+  if (s.includes('submit') || s.includes('review') || s.includes('pending')) return 'Submitted'
+  return 'Open'
+}
+
+function mapTask(key: string, t: any): Task {
+  const verdict = verdictOf(t?.verdict)
+  return {
+    key,
+    id: 'TX-' + key,
+    spec: String(t?.spec ?? `task-${key}`),
+    criteria: String(t?.criteria ?? ''),
+    output: t?.output != null && String(t.output) ? String(t.output) : undefined,
+    status: String(t?.status ?? 'open'),
+    col: statusToCol(t?.status, verdict),
+    verdict,
+  }
+}
 
 const COLS: { key: Column; hint: string }[] = [
   { key: 'Open', hint: 'awaiting agent' },
@@ -35,43 +54,117 @@ const COLS: { key: Column; hint: string }[] = [
 ]
 
 function App() {
-  const [tasks, setTasks] = useState<Task[]>(SEED)
+  const [tasks, setTasks] = useState<Task[]>([])
   const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState('')
-  const [bounty, setBounty] = useState('')
-  const [tags, setTags] = useState('')
+  const [spec, setSpec] = useState('')
+  const [criteria, setCriteria] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  function createTask() {
-    if (!title.trim() || !bounty.trim()) {
-      toast.error('title and bounty required')
-      return
+  async function loadTasks() {
+    try {
+      const s: any = await read('stats')
+      const total = Number(s?.total_tasks ?? 0)
+      const arr: Task[] = []
+      for (let i = 0; i < total; i++) {
+        const key = String(i)
+        try {
+          const t: any = await read('get_task', [key])
+          if (t) arr.push(mapTask(key, t))
+        } catch {
+          /* skip */
+        }
+      }
+      setTasks(arr)
+    } catch (e: any) {
+      toast.error('Failed to load tasks', { description: String(e?.message ?? e) })
+    } finally {
+      setLoading(false)
     }
-    const id = 'TX-' + Math.random().toString(36).slice(2, 5).toUpperCase()
-    setTasks((prev) => [
-      { id, title: title.trim(), bounty: Number(bounty) || 0, tags: tags.split(',').map((t) => t.trim()).filter(Boolean), col: 'Open' },
-      ...prev,
-    ])
-    toast.success(`escrow locked · ${id}`, { description: `${bounty} USDC held in contract` })
-    setTitle(''); setBounty(''); setTags(''); setOpen(false)
   }
 
-  function advance(t: Task) {
-    setTasks((prev) =>
-      prev.map((x) => {
-        if (x.id !== t.id) return x
-        if (x.col === 'Open') { toast(`${x.id} → submitted`, { description: 'agent://you claimed task' }); return { ...x, col: 'Submitted', agent: 'agent://you' } }
-        if (x.col === 'Submitted') {
-          const verdict: Task['verdict'] = Math.random() > 0.35 ? 'pass' : 'fail'
-          toast[verdict === 'pass' ? 'success' : 'error'](`${x.id} judged: ${verdict}`, { description: verdict === 'pass' ? 'bounty released' : 'bounty refunded' })
-          return { ...x, col: 'Judged', verdict }
-        }
-        return x
-      }),
-    )
+  useEffect(() => {
+    loadTasks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function createTask() {
+    if (!spec.trim() || !criteria.trim()) {
+      toast.error('spec and acceptance criteria required')
+      return
+    }
+    setCreating(true)
+    const tId = toast.loading('locking escrow & posting task on-chain… (30–60s)')
+    try {
+      await write('create_task', [spec.trim(), criteria.trim()])
+      await read('stats')
+      await loadTasks()
+      toast.success('escrow locked · task posted', { id: tId })
+      setSpec('')
+      setCriteria('')
+      setOpen(false)
+    } catch (e: any) {
+      toast.error('create failed', { id: tId, description: String(e?.message ?? e) })
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function submitOutput(t: Task) {
+    if (busy) return
+    const output = window.prompt(`Paste agent deliverable for ${t.id}:`)
+    if (output === null) return
+    if (!output.trim()) {
+      toast.error('output required')
+      return
+    }
+    setBusy(t.key)
+    const tId = toast.loading(`submitting output for ${t.id} on-chain… (30–60s)`)
+    try {
+      await write('submit_output', [t.key, output.trim()])
+      await loadTasks()
+      toast.success(`${t.id} → submitted`, { id: tId, description: 'agent://you submitted work' })
+    } catch (e: any) {
+      toast.error('submit failed', { id: tId, description: String(e?.message ?? e) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function judge(t: Task) {
+    if (busy) return
+    setBusy(t.key)
+    const tId = toast.loading(`judge resolving ${t.id} on-chain… (30–60s)`)
+    try {
+      await write('judge_output', [t.key])
+      const r: any = await read('get_task', [t.key])
+      const verdict = verdictOf(r?.verdict)
+      setTasks((prev) =>
+        prev.map((x) =>
+          x.key === t.key
+            ? { ...x, col: 'Judged', verdict, status: String(r?.status ?? 'judged'), output: r?.output != null && String(r.output) ? String(r.output) : x.output }
+            : x,
+        ),
+      )
+      toast[verdict === 'fail' ? 'error' : 'success'](`${t.id} judged: ${verdict ?? 'resolved'}`, {
+        id: tId,
+        description: verdict === 'fail' ? 'bounty refunded' : 'bounty released',
+      })
+    } catch (e: any) {
+      toast.error('judge failed', { id: tId, description: String(e?.message ?? e) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function onCardClick(t: Task) {
+    if (t.col === 'Open') submitOutput(t)
+    else if (t.col === 'Submitted') judge(t)
   }
 
   const byCol = (c: Column) => tasks.filter((t) => t.col === c)
-  const totalEscrow = tasks.filter((t) => t.col !== 'Judged' || t.verdict === 'pass').reduce((a, b) => a + b.bounty, 0)
+  const totalTasks = useMemo(() => tasks.length, [tasks])
 
   return (
     <div className="matrix-grid min-h-screen font-mono" style={{ background: '#08090D', color: '#D6F5E6' }}>
@@ -85,7 +178,7 @@ function App() {
         <span className="hidden text-[11px] text-[#3d5c4d] sm:inline">// trustless task settlement</span>
         <div className="ml-auto flex items-center gap-3">
           <span className="hidden rounded border border-[#00FF94]/20 bg-[#00FF94]/5 px-2.5 py-1 text-[11px] md:inline" style={{ color: GREEN }}>
-            ◈ {totalEscrow.toLocaleString()} USDC in escrow
+            ◈ {totalTasks} task{totalTasks === 1 ? '' : 's'} on-chain
           </span>
           <button
             onClick={() => setOpen(true)}
@@ -117,14 +210,14 @@ function App() {
               <AnimatePresence>
                 {byCol(col.key).map((t) => (
                   <motion.article
-                    key={t.id}
+                    key={t.key}
                     layout
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.92 }}
                     whileHover={{ y: -3 }}
-                    onClick={() => col.key !== 'Judged' && advance(t)}
-                    className={`group rounded-lg border bg-[#0E1417] p-3.5 transition ${col.key !== 'Judged' ? 'cursor-pointer border-[#00FF94]/15 hover:border-[#00FF94]/50' : 'border-white/5'}`}
+                    onClick={() => col.key !== 'Judged' && busy !== t.key && onCardClick(t)}
+                    className={`group rounded-lg border bg-[#0E1417] p-3.5 transition ${col.key !== 'Judged' ? 'cursor-pointer border-[#00FF94]/15 hover:border-[#00FF94]/50' : 'border-white/5'} ${busy === t.key ? 'opacity-60' : ''}`}
                     style={col.key !== 'Judged' ? { boxShadow: 'inset 0 0 0 1px rgba(0,255,148,0.02)' } : undefined}
                   >
                     <div className="flex items-center justify-between">
@@ -132,28 +225,39 @@ function App() {
                       {t.verdict ? (
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${t.verdict === 'pass' ? 'text-[#00FF94]' : 'text-red-400'}`}
                           style={{ background: t.verdict === 'pass' ? 'rgba(0,255,148,0.12)' : 'rgba(248,113,113,0.12)' }}>
-                          {t.verdict}
+                          {t.verdict === 'pass' ? 'accepted' : 'rejected'}
                         </span>
                       ) : (
-                        <span className="text-[11px] font-bold text-amber-300">{t.bounty} <span className="text-[9px] text-[#3d5c4d]">USDC</span></span>
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-300" style={{ background: 'rgba(252,211,77,0.10)' }}>
+                          {t.col}
+                        </span>
                       )}
                     </div>
-                    <p className="mt-2 text-[13px] leading-snug text-[#D6F5E6]">{t.title}</p>
-                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                      {t.tags.map((tag) => (
-                        <span key={tag} className="rounded bg-[#00FF94]/8 px-1.5 py-0.5 text-[10px] text-[#5fae8b]">#{tag}</span>
-                      ))}
-                    </div>
-                    {t.agent && <p className="mt-2 text-[10px] text-[#3d5c4d]">↳ {t.agent}</p>}
+                    <p className="mt-2 text-[13px] leading-snug text-[#D6F5E6]">{t.spec}</p>
+                    {t.criteria && (
+                      <p className="mt-2 text-[10px] leading-snug text-[#5fae8b]">
+                        <span className="text-[#3d5c4d]">accept: </span>{t.criteria}
+                      </p>
+                    )}
+                    {t.output && (
+                      <p className="mt-2 line-clamp-3 rounded bg-[#00FF94]/5 px-2 py-1 text-[10px] leading-snug text-[#9fe7c4]">
+                        ↳ {t.output}
+                      </p>
+                    )}
                     {col.key !== 'Judged' && (
                       <p className="mt-2 text-[10px] text-[#3d5c4d] opacity-0 transition group-hover:opacity-100">
-                        click to {col.key === 'Open' ? 'claim →' : 'submit for judgment →'}
+                        {busy === t.key ? 'working on-chain…' : `click to ${col.key === 'Open' ? 'submit output →' : 'summon judge →'}`}
                       </p>
                     )}
                   </motion.article>
                 ))}
               </AnimatePresence>
-              {byCol(col.key).length === 0 && (
+              {loading && byCol(col.key).length === 0 && (
+                <div className="grid flex-1 place-items-center rounded-lg border border-dashed border-[#00FF94]/10 py-8 text-[11px] text-[#3d5c4d]">
+                  ◌ syncing…
+                </div>
+              )}
+              {!loading && byCol(col.key).length === 0 && (
                 <div className="grid flex-1 place-items-center rounded-lg border border-dashed border-[#00FF94]/10 py-8 text-[11px] text-[#3d5c4d]">
                   ∅ empty
                 </div>
@@ -182,25 +286,18 @@ function App() {
                 <button onClick={() => setOpen(false)} className="text-[#3d5c4d] hover:text-[#D6F5E6]">[esc]</button>
               </div>
 
-              <label className="mt-6 block text-[11px] uppercase tracking-wider text-[#5fae8b]">title</label>
-              <input
-                value={title} onChange={(e) => setTitle(e.target.value)} autoFocus
+              <label className="mt-6 block text-[11px] uppercase tracking-wider text-[#5fae8b]">task spec</label>
+              <textarea
+                value={spec} onChange={(e) => setSpec(e.target.value)} autoFocus rows={3}
                 placeholder="what should the agent do?"
-                className="mt-1.5 w-full rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
+                className="mt-1.5 w-full resize-none rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
               />
 
-              <label className="mt-4 block text-[11px] uppercase tracking-wider text-[#5fae8b]">bounty (USDC)</label>
-              <input
-                value={bounty} onChange={(e) => setBounty(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric"
-                placeholder="500"
-                className="mt-1.5 w-full rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
-              />
-
-              <label className="mt-4 block text-[11px] uppercase tracking-wider text-[#5fae8b]">tags (comma sep)</label>
-              <input
-                value={tags} onChange={(e) => setTags(e.target.value)}
-                placeholder="ml, data, security"
-                className="mt-1.5 w-full rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
+              <label className="mt-4 block text-[11px] uppercase tracking-wider text-[#5fae8b]">acceptance criteria</label>
+              <textarea
+                value={criteria} onChange={(e) => setCriteria(e.target.value)} rows={3}
+                placeholder="how the AI judge decides accept / reject"
+                className="mt-1.5 w-full resize-none rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
               />
 
               <div className="mt-6 rounded border border-[#00FF94]/15 bg-[#00FF94]/5 p-3 text-[11px] leading-relaxed text-[#5fae8b]">
@@ -209,9 +306,10 @@ function App() {
 
               <button
                 onClick={createTask}
-                className="mt-auto rounded bg-[#00FF94] py-3 text-sm font-bold text-[#08090D] transition hover:brightness-110"
+                disabled={creating}
+                className="mt-auto rounded bg-[#00FF94] py-3 text-sm font-bold text-[#08090D] transition hover:brightness-110 disabled:opacity-50"
               >
-                lock escrow & post task
+                {creating ? 'locking escrow on-chain…' : 'lock escrow & post task'}
               </button>
             </motion.aside>
           </>
