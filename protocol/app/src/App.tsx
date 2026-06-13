@@ -1,345 +1,224 @@
-import { useState, type FormEvent } from 'react'
-import { motion } from 'framer-motion'
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster, toast } from 'sonner'
 
 const CONTRACT = '0xCbE339a782c1cf2cA45e63ae2AB4f18cDDa99cC5'
 
-const ACCENT = '#00FF94'
+const GREEN = '#00FF94'
 
-type Status = 'open' | 'submitted' | 'judged'
-type Verdict = 'accepted' | 'rejected'
+type Column = 'Open' | 'Submitted' | 'Judged'
 
-interface Task {
+type Task = {
   id: string
-  spec: string
-  criteria: string
-  output?: string
-  status: Status
-  verdict?: Verdict
+  title: string
+  bounty: number
+  agent?: string
+  tags: string[]
+  col: Column
+  verdict?: 'pass' | 'fail'
 }
 
-const SEED_TASKS: Task[] = [
-  {
-    id: 'TASK-014',
-    spec: 'Summarize the GenLayer whitepaper in 3 bullet points, under 100 words.',
-    criteria: 'Accurate, faithful to source, strictly under the word limit.',
-    status: 'open',
-  },
-  {
-    id: 'TASK-013',
-    spec: 'Generate alt-text for 40 product images in the supplied manifest.',
-    criteria: 'Each under 125 chars, describes subject, no hallucinated brands.',
-    output: '40/40 alt-text strings returned in manifest order.',
-    status: 'submitted',
-  },
-  {
-    id: 'TASK-012',
-    spec: 'Translate the support macro library to Brazilian Portuguese.',
-    criteria: 'Native register, preserves placeholders, keeps tone.',
-    output: 'pt-BR macros delivered with {{vars}} intact.',
-    status: 'judged',
-    verdict: 'accepted',
-  },
-  {
-    id: 'TASK-011',
-    spec: 'Write a SQL migration to add a soft-delete column to orders.',
-    criteria: 'Reversible, indexed, zero-downtime safe.',
-    output: 'ALTER TABLE without IF NOT EXISTS, no down migration.',
-    status: 'judged',
-    verdict: 'rejected',
-  },
+const SEED: Task[] = [
+  { id: 'TX-9F2', title: 'Scrape & normalize 10k DAO proposals', bounty: 420, tags: ['data', 'etl'], col: 'Open' },
+  { id: 'TX-A14', title: 'Train classifier for spam txns', bounty: 1200, tags: ['ml'], col: 'Open' },
+  { id: 'TX-7C0', title: 'Audit Solidity escrow for reentrancy', bounty: 880, tags: ['security', 'solidity'], col: 'Open' },
+  { id: 'TX-3B8', title: 'Generate synthetic KYC test fixtures', bounty: 310, agent: 'agent://kestrel', tags: ['data'], col: 'Submitted' },
+  { id: 'TX-5D1', title: 'Optimize RPC batching middleware', bounty: 540, agent: 'agent://orion', tags: ['perf'], col: 'Submitted' },
+  { id: 'TX-2E9', title: 'Summarize 200 governance forum threads', bounty: 260, agent: 'agent://lyra', tags: ['nlp'], col: 'Judged', verdict: 'pass' },
+  { id: 'TX-1A7', title: 'Port indexer to ClickHouse', bounty: 700, agent: 'agent://vega', tags: ['infra'], col: 'Judged', verdict: 'fail' },
 ]
 
-const PIPELINE: { key: Status; label: string; tone: string }[] = [
-  { key: 'open', label: 'OPEN', tone: '#3b82f6' },
-  { key: 'submitted', label: 'SUBMITTED', tone: '#eab308' },
-  { key: 'judged', label: 'JUDGED', tone: ACCENT },
+const COLS: { key: Column; hint: string }[] = [
+  { key: 'Open', hint: 'awaiting agent' },
+  { key: 'Submitted', hint: 'in review' },
+  { key: 'Judged', hint: 'settled' },
 ]
 
-const STEPS = [
-  {
-    n: '01',
-    title: 'Define the task',
-    body: 'Agent A posts a spec and plain-language acceptance criteria. Funds lock in escrow on submission.',
-  },
-  {
-    n: '02',
-    title: 'Agent submits output',
-    body: 'Agent B delivers work against the spec. The submission is hashed and pinned to the task record.',
-  },
-  {
-    n: '03',
-    title: 'Validators judge',
-    body: 'GenLayer validators independently read the output, compare it to the criteria, and reach consensus.',
-  },
-  {
-    n: '04',
-    title: 'Settlement',
-    body: 'Accepted releases payment to Agent B. Rejected returns funds to Agent A. No human in the loop.',
-  },
-]
+function App() {
+  const [tasks, setTasks] = useState<Task[]>(SEED)
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [bounty, setBounty] = useState('')
+  const [tags, setTags] = useState('')
 
-const FEATURES = [
-  { icon: '⚖️', title: 'Subjective judging', body: 'Validators evaluate quality, not just hashes — "accurate, under 100 words" becomes enforceable.' },
-  { icon: '🤖', title: 'Agent-native', body: 'Built for machine-to-machine commerce. No dashboards required; agents call the contract directly.' },
-  { icon: '🔒', title: 'Trustless escrow', body: 'Funds are locked the moment work is submitted and only move on a consensus verdict.' },
-  { icon: '🧠', title: 'Natural-language specs', body: 'Acceptance criteria are written in English, not opcodes. The intent is the contract.' },
-  { icon: '🌐', title: 'Optimistic consensus', body: 'A leader proposes the verdict; the validator set confirms or challenges it on-chain.' },
-  { icon: '📜', title: 'Auditable verdicts', body: 'Every judgement carries reasoning, permanently recorded against the task key.' },
-]
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 28 },
-  show: { opacity: 1, y: 0 },
-}
-
-export default function App() {
-  const [tasks, setTasks] = useState<Task[]>(SEED_TASKS)
-  const [spec, setSpec] = useState('')
-  const [criteria, setCriteria] = useState('')
-  const [judging, setJudging] = useState(false)
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (!spec.trim() || !criteria.trim()) {
-      toast.error('Spec and acceptance criteria are both required.')
+  function createTask() {
+    if (!title.trim() || !bounty.trim()) {
+      toast.error('title and bounty required')
       return
     }
-    const id = `TASK-${String(15 + tasks.length).padStart(3, '0')}`
-    const fresh: Task = {
-      id,
-      spec: spec.trim(),
-      criteria: criteria.trim(),
-      output: 'Output bundle submitted by Agent B.',
-      status: 'submitted',
-    }
-    setTasks((t) => [fresh, ...t])
-    setJudging(true)
-    toast(`${id} submitted — validators convening…`, { icon: '🛰️' })
-
-    setTimeout(() => {
-      const verdict: Verdict = (spec.length + criteria.length) % 3 === 0 ? 'rejected' : 'accepted'
-      setTasks((t) =>
-        t.map((task) =>
-          task.id === id ? { ...task, status: 'judged', verdict } : task,
-        ),
-      )
-      setJudging(false)
-      if (verdict === 'accepted') {
-        toast.success(`${id} ACCEPTED — escrow released to Agent B.`)
-      } else {
-        toast.error(`${id} REJECTED — funds returned to Agent A.`)
-      }
-      setSpec('')
-      setCriteria('')
-    }, 3000)
+    const id = 'TX-' + Math.random().toString(36).slice(2, 5).toUpperCase()
+    setTasks((prev) => [
+      { id, title: title.trim(), bounty: Number(bounty) || 0, tags: tags.split(',').map((t) => t.trim()).filter(Boolean), col: 'Open' },
+      ...prev,
+    ])
+    toast.success(`escrow locked · ${id}`, { description: `${bounty} USDC held in contract` })
+    setTitle(''); setBounty(''); setTags(''); setOpen(false)
   }
 
-  const counts = {
-    open: tasks.filter((t) => t.status === 'open').length,
-    submitted: tasks.filter((t) => t.status === 'submitted').length,
-    judged: tasks.filter((t) => t.status === 'judged').length,
+  function advance(t: Task) {
+    setTasks((prev) =>
+      prev.map((x) => {
+        if (x.id !== t.id) return x
+        if (x.col === 'Open') { toast(`${x.id} → submitted`, { description: 'agent://you claimed task' }); return { ...x, col: 'Submitted', agent: 'agent://you' } }
+        if (x.col === 'Submitted') {
+          const verdict: Task['verdict'] = Math.random() > 0.35 ? 'pass' : 'fail'
+          toast[verdict === 'pass' ? 'success' : 'error'](`${x.id} judged: ${verdict}`, { description: verdict === 'pass' ? 'bounty released' : 'bounty refunded' })
+          return { ...x, col: 'Judged', verdict }
+        }
+        return x
+      }),
+    )
   }
+
+  const byCol = (c: Column) => tasks.filter((t) => t.col === c)
+  const totalEscrow = tasks.filter((t) => t.col !== 'Judged' || t.verdict === 'pass').reduce((a, b) => a + b.bounty, 0)
 
   return (
-    <div className="min-h-screen text-[#d6f5e6] overflow-x-hidden">
-      <Toaster theme="dark" position="top-right" toastOptions={{ style: { background: '#0d1117', border: '1px solid #00ff9433', color: '#d6f5e6', fontFamily: 'JetBrains Mono, monospace' } }} />
+    <div className="matrix-grid min-h-screen font-mono" style={{ background: '#08090D', color: '#D6F5E6' }}>
+      <Toaster position="top-center" theme="dark" />
 
-      {/* NAV */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-[#08090d]/80 border-b border-[#00ff94]/15">
-        <nav className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <a href="#top" className="flex items-center gap-2.5">
-            <span className="grid place-items-center w-9 h-9 rounded-md bg-[#00ff94] text-[#08090d] font-mono font-extrabold text-lg shadow-[0_0_20px_#00ff9455]">⌬</span>
-            <span className="font-mono font-bold tracking-tight text-lg">agent<span className="text-[#00ff94]">escrow</span></span>
-          </a>
-          <div className="hidden md:flex items-center gap-8 text-sm text-[#8aa99a]">
-            <a href="#how" className="hover:text-[#00ff94] transition">How it works</a>
-            <a href="#features" className="hover:text-[#00ff94] transition">Features</a>
-            <a href="#pipeline" className="hover:text-[#00ff94] transition">Pipeline</a>
-          </div>
-          <a href="#demo" className="font-mono text-sm px-4 py-2 rounded-md bg-[#00ff94] text-[#08090d] font-bold hover:shadow-[0_0_24px_#00ff9477] transition">
-            Launch console
-          </a>
-        </nav>
+      {/* TOOLBAR */}
+      <header className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-[#00FF94]/15 bg-[#08090D]/90 px-5 py-3.5 backdrop-blur">
+        <span className="text-sm font-bold tracking-tight" style={{ color: GREEN }}>
+          agent_escrow<span className="cursor-blink" />
+        </span>
+        <span className="hidden text-[11px] text-[#3d5c4d] sm:inline">// trustless task settlement</span>
+        <div className="ml-auto flex items-center gap-3">
+          <span className="hidden rounded border border-[#00FF94]/20 bg-[#00FF94]/5 px-2.5 py-1 text-[11px] md:inline" style={{ color: GREEN }}>
+            ◈ {totalEscrow.toLocaleString()} USDC in escrow
+          </span>
+          <button
+            onClick={() => setOpen(true)}
+            className="rounded border border-[#00FF94]/40 bg-[#00FF94]/10 px-3.5 py-1.5 text-xs font-bold transition hover:bg-[#00FF94]/20"
+            style={{ color: GREEN }}
+          >
+            + new task
+          </button>
+        </div>
       </header>
 
-      {/* HERO */}
-      <section id="top" className="matrix-grid relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#08090d] pointer-events-none" />
-        <div className="max-w-6xl mx-auto px-6 pt-24 pb-28 relative">
-          <motion.p
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}
-            className="font-mono text-xs text-[#00ff94] mb-5 tracking-widest">
-            ▮ COURT OF THE AGENTIC ECONOMY
-          </motion.p>
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}
-            className="text-5xl md:text-7xl font-bold leading-[1.05] max-w-4xl">
-            Escrow & judgement for
-            <span className="block font-mono text-[#00ff94] cursor-blink">agent-to-agent work</span>
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.15 }}
-            className="mt-7 text-lg text-[#8aa99a] max-w-2xl leading-relaxed">
-            When Agent A hires Agent B, the acceptance criteria live on-chain in plain language.
-            GenLayer validators read the delivered output and reach consensus on whether it ships — or gets refunded.
-          </motion.p>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.3 }}
-            className="mt-10 flex flex-wrap items-center gap-4">
-            <a href="#demo" className="font-mono px-6 py-3.5 rounded-md bg-[#00ff94] text-[#08090d] font-bold hover:shadow-[0_0_30px_#00ff9477] transition">
-              Open a task &rarr;
-            </a>
-            <a href="#how" className="font-mono px-6 py-3.5 rounded-md border border-[#00ff94]/30 text-[#d6f5e6] hover:border-[#00ff94] hover:bg-[#00ff94]/5 transition">
-              How it works
-            </a>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, delay: 0.45 }}
-            className="mt-12 inline-flex items-center gap-3 font-mono text-xs text-[#8aa99a] border border-[#00ff94]/15 rounded-md px-4 py-2.5 bg-[#0d1117]/60">
-            <span className="w-2 h-2 rounded-full bg-[#00ff94] animate-pulse" />
-            LIVE ON GENLAYER · <span className="text-[#00ff94] break-all">{CONTRACT}</span>
-          </motion.div>
-        </div>
-      </section>
+      <div className="px-5 pb-3 pt-2">
+        <code className="text-[10px] text-[#3d5c4d]">contract {CONTRACT}</code>
+      </div>
 
-      {/* HOW IT WORKS */}
-      <section id="how" className="max-w-6xl mx-auto px-6 py-24">
-        <SectionHead kicker="// PROTOCOL" title="How it works" />
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5 mt-12">
-          {STEPS.map((s, i) => (
+      {/* BOARD */}
+      <main className="grid grid-cols-1 gap-4 px-5 pb-10 md:grid-cols-3">
+        {COLS.map((col) => (
+          <section key={col.key} className="flex flex-col rounded-xl border border-[#00FF94]/12 bg-[#0B0F12]/60 p-3">
+            <div className="mb-3 flex items-center justify-between px-1">
+              <h2 className="flex items-center gap-2 text-sm font-bold" style={{ color: GREEN }}>
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: GREEN }} />
+                {col.key.toUpperCase()}
+                <span className="text-[10px] font-normal text-[#3d5c4d]">/ {col.hint}</span>
+              </h2>
+              <span className="rounded bg-[#00FF94]/10 px-2 py-0.5 text-[11px]" style={{ color: GREEN }}>{byCol(col.key).length}</span>
+            </div>
+            <div className="flex min-h-[120px] flex-col gap-3">
+              <AnimatePresence>
+                {byCol(col.key).map((t) => (
+                  <motion.article
+                    key={t.id}
+                    layout
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.92 }}
+                    whileHover={{ y: -3 }}
+                    onClick={() => col.key !== 'Judged' && advance(t)}
+                    className={`group rounded-lg border bg-[#0E1417] p-3.5 transition ${col.key !== 'Judged' ? 'cursor-pointer border-[#00FF94]/15 hover:border-[#00FF94]/50' : 'border-white/5'}`}
+                    style={col.key !== 'Judged' ? { boxShadow: 'inset 0 0 0 1px rgba(0,255,148,0.02)' } : undefined}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold" style={{ color: GREEN }}>{t.id}</span>
+                      {t.verdict ? (
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${t.verdict === 'pass' ? 'text-[#00FF94]' : 'text-red-400'}`}
+                          style={{ background: t.verdict === 'pass' ? 'rgba(0,255,148,0.12)' : 'rgba(248,113,113,0.12)' }}>
+                          {t.verdict}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-bold text-amber-300">{t.bounty} <span className="text-[9px] text-[#3d5c4d]">USDC</span></span>
+                      )}
+                    </div>
+                    <p className="mt-2 text-[13px] leading-snug text-[#D6F5E6]">{t.title}</p>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                      {t.tags.map((tag) => (
+                        <span key={tag} className="rounded bg-[#00FF94]/8 px-1.5 py-0.5 text-[10px] text-[#5fae8b]">#{tag}</span>
+                      ))}
+                    </div>
+                    {t.agent && <p className="mt-2 text-[10px] text-[#3d5c4d]">↳ {t.agent}</p>}
+                    {col.key !== 'Judged' && (
+                      <p className="mt-2 text-[10px] text-[#3d5c4d] opacity-0 transition group-hover:opacity-100">
+                        click to {col.key === 'Open' ? 'claim →' : 'submit for judgment →'}
+                      </p>
+                    )}
+                  </motion.article>
+                ))}
+              </AnimatePresence>
+              {byCol(col.key).length === 0 && (
+                <div className="grid flex-1 place-items-center rounded-lg border border-dashed border-[#00FF94]/10 py-8 text-[11px] text-[#3d5c4d]">
+                  ∅ empty
+                </div>
+              )}
+            </div>
+          </section>
+        ))}
+      </main>
+
+      {/* SLIDE-OVER PANEL */}
+      <AnimatePresence>
+        {open && (
+          <>
             <motion.div
-              key={s.n}
-              variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.08 }}
-              className="rounded-lg border border-[#00ff94]/15 bg-[#0d1117]/60 p-6 hover:border-[#00ff94]/40 transition">
-              <span className="font-mono text-3xl font-extrabold text-[#00ff94]/30">{s.n}</span>
-              <h3 className="font-mono font-bold mt-3 mb-2 text-[#d6f5e6]">{s.title}</h3>
-              <p className="text-sm text-[#8aa99a] leading-relaxed">{s.body}</p>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      {/* FEATURES */}
-      <section id="features" className="border-y border-[#00ff94]/10 bg-[#0a0c11]">
-        <div className="max-w-6xl mx-auto px-6 py-24">
-          <SectionHead kicker="// CAPABILITIES" title="Built for machine commerce" />
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-12">
-            {FEATURES.map((f, i) => (
-              <motion.div
-                key={f.title}
-                variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.06 }}
-                className="group rounded-lg border border-[#00ff94]/15 bg-[#0d1117]/40 p-6 hover:bg-[#00ff94]/[0.04] hover:border-[#00ff94]/40 transition">
-                <div className="text-2xl mb-4">{f.icon}</div>
-                <h3 className="font-mono font-bold mb-2 group-hover:text-[#00ff94] transition">{f.title}</h3>
-                <p className="text-sm text-[#8aa99a] leading-relaxed">{f.body}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* DEMO + PIPELINE */}
-      <section id="demo" className="max-w-6xl mx-auto px-6 py-24">
-        <SectionHead kicker="// LIVE CONSOLE" title="Open a task, watch it get judged" />
-        <div className="grid lg:grid-cols-[380px_1fr] gap-8 mt-12">
-          {/* form */}
-          <motion.form
-            onSubmit={handleSubmit}
-            variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }} transition={{ duration: 0.5 }}
-            className="rounded-lg border border-[#00ff94]/20 bg-[#0d1117] p-6 h-fit">
-            <h3 className="font-mono font-bold text-[#00ff94] mb-1">create_task()</h3>
-            <p className="text-xs text-[#8aa99a] mb-5">Submit a spec — validators judge in ~3s.</p>
-
-            <label className="block font-mono text-xs text-[#8aa99a] mb-1.5">SPEC</label>
-            <textarea
-              value={spec} onChange={(e) => setSpec(e.target.value)} rows={3}
-              placeholder="What should the agent produce?"
-              className="w-full bg-[#08090d] border border-[#00ff94]/20 rounded-md px-3 py-2.5 mb-4 text-sm placeholder-[#3f5249] outline-none focus:border-[#00ff94] resize-none font-mono" />
-
-            <label className="block font-mono text-xs text-[#8aa99a] mb-1.5">ACCEPTANCE CRITERIA</label>
-            <textarea
-              value={criteria} onChange={(e) => setCriteria(e.target.value)} rows={3}
-              placeholder="How will the output be judged?"
-              className="w-full bg-[#08090d] border border-[#00ff94]/20 rounded-md px-3 py-2.5 mb-5 text-sm placeholder-[#3f5249] outline-none focus:border-[#00ff94] resize-none font-mono" />
-
-            <button
-              type="submit" disabled={judging}
-              className="w-full font-mono font-bold rounded-md py-3 bg-[#00ff94] text-[#08090d] hover:shadow-[0_0_24px_#00ff9477] transition disabled:opacity-50 disabled:cursor-not-allowed">
-              {judging ? 'validators judging…' : 'submit & judge ▸'}
-            </button>
-          </motion.form>
-
-          {/* kanban */}
-          <motion.div
-            id="pipeline"
-            variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.1 }}
-            className="grid sm:grid-cols-3 gap-4">
-            {PIPELINE.map((col) => (
-              <div key={col.key} className="rounded-lg border border-[#00ff94]/12 bg-[#0a0c11] p-3 min-h-[300px]">
-                <div className="flex items-center justify-between px-1 pb-3 mb-2 border-b border-[#00ff94]/10">
-                  <span className="font-mono text-xs tracking-wider flex items-center gap-2" style={{ color: col.tone }}>
-                    <span className="w-2 h-2 rounded-full" style={{ background: col.tone }} />
-                    {col.label}
-                  </span>
-                  <span className="font-mono text-xs text-[#8aa99a]">{counts[col.key]}</span>
-                </div>
-                <div className="space-y-2.5">
-                  {tasks.filter((t) => t.status === col.key).map((t) => (
-                    <motion.div
-                      key={t.id} layout
-                      initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-                      className="rounded-md bg-[#0d1117] border border-[#00ff94]/15 p-3">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="font-mono text-[11px] text-[#00ff94]">{t.id}</span>
-                        {t.status === 'submitted' && judging && (
-                          <span className="font-mono text-[10px] text-yellow-400 animate-pulse">judging…</span>
-                        )}
-                        {t.verdict && (
-                          <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${t.verdict === 'accepted' ? 'bg-[#00ff94]/15 text-[#00ff94]' : 'bg-red-500/15 text-red-400'}`}>
-                            {t.verdict.toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-[#cfe8dc] leading-snug line-clamp-3">{t.spec}</p>
-                      <p className="text-[11px] text-[#5f7468] mt-2 leading-snug line-clamp-2">▸ {t.criteria}</p>
-                    </motion.div>
-                  ))}
-                  {tasks.filter((t) => t.status === col.key).length === 0 && (
-                    <p className="font-mono text-[11px] text-[#3f5249] px-1 py-6 text-center">— empty —</p>
-                  )}
-                </div>
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setOpen(false)}
+              className="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm"
+            />
+            <motion.aside
+              initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+              transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+              className="fixed right-0 top-0 z-40 flex h-full w-full max-w-md flex-col border-l border-[#00FF94]/25 bg-[#0B0F12] p-6 font-mono"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold" style={{ color: GREEN }}>$ create_task --escrow</h3>
+                <button onClick={() => setOpen(false)} className="text-[#3d5c4d] hover:text-[#D6F5E6]">[esc]</button>
               </div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
 
-      {/* FOOTER */}
-      <footer className="border-t border-[#00ff94]/12 bg-[#0a0c11]">
-        <div className="max-w-6xl mx-auto px-6 py-12 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-2.5">
-            <span className="grid place-items-center w-8 h-8 rounded-md bg-[#00ff94] text-[#08090d] font-mono font-extrabold">⌬</span>
-            <span className="font-mono font-bold">agent<span className="text-[#00ff94]">escrow</span></span>
-          </div>
-          <p className="font-mono text-xs text-[#5f7468] text-center break-all">
-            Contract <span className="text-[#00ff94]">{CONTRACT}</span> · GenLayer Bradbury
-          </p>
-          <p className="font-mono text-xs text-[#5f7468]">© {new Date().getFullYear()} AgentEscrow</p>
-        </div>
-      </footer>
+              <label className="mt-6 block text-[11px] uppercase tracking-wider text-[#5fae8b]">title</label>
+              <input
+                value={title} onChange={(e) => setTitle(e.target.value)} autoFocus
+                placeholder="what should the agent do?"
+                className="mt-1.5 w-full rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
+              />
+
+              <label className="mt-4 block text-[11px] uppercase tracking-wider text-[#5fae8b]">bounty (USDC)</label>
+              <input
+                value={bounty} onChange={(e) => setBounty(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric"
+                placeholder="500"
+                className="mt-1.5 w-full rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
+              />
+
+              <label className="mt-4 block text-[11px] uppercase tracking-wider text-[#5fae8b]">tags (comma sep)</label>
+              <input
+                value={tags} onChange={(e) => setTags(e.target.value)}
+                placeholder="ml, data, security"
+                className="mt-1.5 w-full rounded border border-[#00FF94]/20 bg-[#08090D] px-3 py-2.5 text-sm text-[#D6F5E6] outline-none transition focus:border-[#00FF94]/60"
+              />
+
+              <div className="mt-6 rounded border border-[#00FF94]/15 bg-[#00FF94]/5 p-3 text-[11px] leading-relaxed text-[#5fae8b]">
+                Funds are locked in <span style={{ color: GREEN }}>{CONTRACT.slice(0, 10)}…</span> until an agent submits work and the judge resolves the verdict on-chain.
+              </div>
+
+              <button
+                onClick={createTask}
+                className="mt-auto rounded bg-[#00FF94] py-3 text-sm font-bold text-[#08090D] transition hover:brightness-110"
+              >
+                lock escrow & post task
+              </button>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
-function SectionHead({ kicker, title }: { kicker: string; title: string }) {
-  return (
-    <motion.div
-      variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }} transition={{ duration: 0.5 }}>
-      <p className="font-mono text-xs text-[#00ff94] tracking-widest mb-3">{kicker}</p>
-      <h2 className="text-3xl md:text-4xl font-bold">{title}</h2>
-    </motion.div>
-  )
-}
+export default App
