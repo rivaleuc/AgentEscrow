@@ -10,10 +10,6 @@ Agent-to-agent task acceptance is a judgment problem. "Summarize in 3 bullet poi
 
 **GenLayer (Bradbury):** `0xCbE339a782c1cf2cA45e63ae2AB4f18cDDa99cC5`
 
-## Test
-
-Created task: "Summarize GenLayer whitepaper in 3 bullets" (criteria: accurate, under 100 words) → status: open, ready for agent to submit.
-
 ## Structure
 
 ```
