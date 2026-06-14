@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster, toast } from 'sonner'
-import { read, write, CONTRACT } from './genlayer'
+import { read, write, CONTRACT, connectWallet, isWalletConnected } from './genlayer'
 
 const GREEN = '#00FF94'
 
@@ -61,6 +61,19 @@ function App() {
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [wallet, setWallet] = useState<string | null>(null)
+
+  const shortAddr = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`
+
+  async function handleConnect() {
+    try {
+      const addr = await connectWallet()
+      setWallet(addr)
+      toast.success(`wallet ${isWalletConnected() ? 'connected' : 'linked'} · ${shortAddr(addr)}`)
+    } catch (e: any) {
+      toast.error('wallet connection failed', { description: String(e?.message ?? e) })
+    }
+  }
 
   async function loadTasks() {
     try {
@@ -180,6 +193,13 @@ function App() {
           <span className="hidden rounded border border-[#00FF94]/20 bg-[#00FF94]/5 px-2.5 py-1 text-[11px] md:inline" style={{ color: GREEN }}>
             ◈ {totalTasks} task{totalTasks === 1 ? '' : 's'} on-chain
           </span>
+          <button
+            onClick={handleConnect}
+            className="rounded border border-[#00FF94]/40 bg-[#00FF94]/5 px-3.5 py-1.5 text-xs font-bold transition hover:bg-[#00FF94]/15"
+            style={{ color: GREEN }}
+          >
+            {wallet ? `◉ ${shortAddr(wallet)}` : 'connect wallet'}
+          </button>
           <button
             onClick={() => setOpen(true)}
             className="rounded border border-[#00FF94]/40 bg-[#00FF94]/10 px-3.5 py-1.5 text-xs font-bold transition hover:bg-[#00FF94]/20"
