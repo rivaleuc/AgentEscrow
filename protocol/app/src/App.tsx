@@ -108,12 +108,12 @@ function App() {
       return
     }
     setCreating(true)
-    const tId = toast.loading('locking escrow & posting task on-chain… (30–60s)')
+    const tId = toast.loading('posting task on-chain… (30–60s)')
     try {
       await write('create_task', [spec.trim(), criteria.trim()])
       await read('stats')
       await loadTasks()
-      toast.success('escrow locked · task posted', { id: tId })
+      toast.success('task posted on-chain', { id: tId })
       setSpec('')
       setCriteria('')
       setOpen(false)
@@ -162,7 +162,7 @@ function App() {
       )
       toast[verdict === 'fail' ? 'error' : 'success'](`${t.id} judged: ${verdict ?? 'resolved'}`, {
         id: tId,
-        description: verdict === 'fail' ? 'bounty refunded' : 'bounty released',
+        description: verdict === 'fail' ? 'verdict: rejected — recorded on-chain' : 'verdict: accepted — recorded on-chain',
       })
     } catch (e: any) {
       toast.error('judge failed', { id: tId, description: String(e?.message ?? e) })
@@ -321,7 +321,7 @@ function App() {
               />
 
               <div className="mt-6 rounded border border-[#00FF94]/15 bg-[#00FF94]/5 p-3 text-[11px] leading-relaxed text-[#5fae8b]">
-                Funds are locked in <span style={{ color: GREEN }}>{CONTRACT.slice(0, 10)}…</span> until an agent submits work and the judge resolves the verdict on-chain.
+                The task spec & acceptance criteria are recorded in <span style={{ color: GREEN }}>{CONTRACT.slice(0, 10)}…</span>. An agent submits work, then the AI judge resolves an accept / reject verdict on-chain via GenLayer consensus.
               </div>
 
               <button
@@ -329,7 +329,7 @@ function App() {
                 disabled={creating}
                 className="mt-auto rounded bg-[#00FF94] py-3 text-sm font-bold text-[#08090D] transition hover:brightness-110 disabled:opacity-50"
               >
-                {creating ? 'locking escrow on-chain…' : 'lock escrow & post task'}
+                {creating ? 'posting task on-chain…' : 'post task'}
               </button>
             </motion.aside>
           </>

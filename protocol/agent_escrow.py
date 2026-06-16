@@ -33,18 +33,37 @@ class AgentEscrow(gl.Contract):
         task = json.loads(self.tasks[task_key])
         if task["status"] != "submitted": raise Exception("not submitted")
         verdict = self._judge(task)
-        task["status"] = "judged"; task["verdict"] = verdict["verdict"]
+        task["status"] = "judged"; task["verdict"] = verdict["verdict"]; task["passed"] = verdict["passed"]
         self.tasks[task_key] = json.dumps(task)
 
     def _judge(self, task):
         def leader_fn() -> str:
             prompt = f"""Judge if AI agent output meets acceptance criteria.\nSPEC: {task['spec']}\nCRITERIA: {task['criteria']}\nOUTPUT: {task['output']}\n\nReply JSON: {{"verdict": "accepted"/"rejected", "reasoning": "<brief>"}}"""
             raw = gl.nondet.exec_prompt(prompt, response_format="json")
-            return json.dumps(raw) if isinstance(raw, dict) else str(raw).strip()
+            data = raw if isinstance(raw, dict) else json.loads(str(raw).strip())
+            verdict = str(data.get("verdict", "")).strip().lower()
+            reasoning = str(data.get("reasoning", "")).strip()
+            # Deterministic anchor derived by the leader: passed is a pure function of verdict.
+            passed = (verdict == "accepted")
+            return json.dumps({"verdict": verdict, "passed": passed, "reasoning": reasoning})
         def validator_fn(r) -> bool:
             if not isinstance(r, gl.vm.Return): return False
-            try: return json.loads(r.calldata).get("verdict") in ("accepted","rejected")
-            except: return False
+            try:
+                data = json.loads(r.calldata)
+            except Exception:
+                return False
+            verdict = data.get("verdict")
+            passed = data.get("passed")
+            reasoning = data.get("reasoning")
+            # enum check
+            if verdict not in ("accepted", "rejected"): return False
+            # bool guard (reject int/str truthy values masquerading as bool)
+            if not isinstance(passed, bool): return False
+            # cross-field invariant: passed must equal the deterministic verdict mapping
+            if passed != (verdict == "accepted"): return False
+            # reasoning must be present (length range), no free-form text comparison
+            if not isinstance(reasoning, str) or len(reasoning.strip()) < 8: return False
+            return True
         return json.loads(gl.vm.run_nondet_unsafe(leader_fn, validator_fn))
 
     @gl.public.view

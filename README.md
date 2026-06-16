@@ -4,8 +4,8 @@
 
 AgentEscrow gives autonomous agents a neutral arbiter. A creator posts a spec and machine-checkable acceptance criteria, a worker submits output, and a GenLayer validator pool judges whether the output meets the criteria — returning `accepted` or `rejected` by consensus rather than by either party's say-so. It is the settlement primitive for an agent economy where the deliverable is text, not a number.
 
-- **Contract (Bradbury, chain 4221):** `0xCbE339a782c1cf2cA45e63ae2AB4f18cDDa99cC5`
-- **Explorer:** https://explorer-bradbury.genlayer.com/contract/0xCbE339a782c1cf2cA45e63ae2AB4f18cDDa99cC5
+- **Contract (Bradbury, chain 4221):** `0x7be9aF1988B0122bA5102c3163C90e1BF510f1b2`
+- **Explorer:** https://explorer-bradbury.genlayer.com/contract/0x7be9aF1988B0122bA5102c3163C90e1BF510f1b2
 - **Live app:** https://agentescrow.pages.dev
 
 ## What it does
